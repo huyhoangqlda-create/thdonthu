@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hệ Thống Quản Lý Đơn Thư - UBND/HĐND Cấp Xã</title>
+    <link rel="stylesheet" href="/style.css">
+    <!-- Font Awesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <header class="gov-header">
+        <div class="header-container">
+            <div class="logo-area">
+                <i class="fa-solid fa-building-flag header-icon"></i>
+                <div class="header-titles">
+                    <h2>CỔNG THÔNG TIN QUẢN LÝ ĐƠN THƯ</h2>
+                    <p>HỆ THỐNG CÔNG KHAI KẾT QUẢ TIẾP NHẬN GIẢI QUYẾT KHIẾU NẠI, TỐ CÁO, KIẾN NGHỊ CỦA CỬ TRI VÀ NHÂN DÂN TRÊN ĐỊA BÀN PHƯỜNG TÂN TIẾN, TỈNH BẮC NINH</p>
+                </div>
+            </div>
+            <div class="user-area">
+                <button id="btnLogin" class="btn-primary" onclick="app.showLoginModal()">
+                    <i class="fa-solid fa-user-shield"></i> Đăng Nhập Quản Trị
+                </button>
+                <button id="btnLogout" class="btn-danger hidden" onclick="app.logout()">
+                    <i class="fa-solid fa-sign-out-alt"></i> Đăng Xuất
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <nav class="main-nav">
+        <ul>
+            <li><a href="#" class="active" id="tab-public" onclick="app.switchTab('public')"><i class="fa-solid fa-table-list"></i> Tổng Hợp Đơn Thư</a></li>
+            <li id="nav-admin" class="hidden"><a href="#" id="tab-admin" onclick="app.switchTab('admin')"><i class="fa-solid fa-upload"></i> Xử Lý Đơn Thư (Admin)</a></li>
+        </ul>
+    </nav>
+
+    <main class="container">
+        
+        <!-- VIEW: PUBLIC TABLE -->
+        <section id="view-public" class="view-section active">
+            <div class="toolbar">
+                <div class="search-box">
+                    <i class="fa-solid fa-search"></i>
+                    <input type="text" id="searchInput" placeholder="Tìm kiếm người gửi, nội dung..." onkeyup="app.filterTable()">
+                </div>
+                <button class="btn-refresh" onclick="app.loadData()"><i class="fa-solid fa-sync"></i> Làm Mới Dữ Liệu</button>
+            </div>
+
+            <div class="table-responsive">
+                <table id="dataTable" class="gov-table">
+                    <thead>
+                        <tr>
+                            <th width="3%">STT</th>
+                            <th width="8%">Ngày gửi</th>
+                            <th width="10%">Người gửi</th>
+                            <th width="15%">Địa chỉ</th>
+                            <th width="20%">Nội dung đơn</th>
+                            <th width="8%">Loại đơn</th>
+                            <th width="10%">Đơn vị GQ</th>
+                            <th width="8%">Hạn GQ</th>
+                            <th width="10%">Kết quả</th>
+                            <th width="4%">Đơn</th>
+                            <th width="4%">VB</th>
+                        </tr>
+                    </thead>
+                    <tbody id="tableBody">
+                        <!-- Data will be loaded here -->
+                        <tr><td colspan="11" class="text-center loading-text"><i class="fa-solid fa-spinner fa-spin"></i> Đang tải dữ liệu...</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- VIEW: ADMIN DASHBOARD -->
+        <section id="view-admin" class="view-section hidden">
+            <div class="dashboard-grid">
+                
+                <!-- UPLOAD PETITION CARD -->
+                <div class="card admin-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-file-pdf"></i> Tiếp Nhận Đơn Thư Mới</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">Tải lên file định dạng PDF, Word hoặc Ảnh chụp để AI tự động trích xuất thông tin và lưu vào hệ thống.</p>
+                        
+                        <form id="formUploadPetition" onsubmit="app.handleUploadPetition(event)">
+                            <div class="file-upload-wrapper">
+                                <input type="file" id="filePetition" accept=".pdf,.doc,.docx,image/*" required>
+                                <label for="filePetition" class="file-drop-area">
+                                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                                    <span id="labelFilePetition">Nhấn để chọn file hoặc kéo thả vào đây</span>
+                                </label>
+                            </div>
+                            <!-- Simulated AI settings just mapping logic -->
+                            <div class="form-actions">
+                                <button type="submit" class="btn-success btn-block" id="btnSubmitPetition">
+                                    <i class="fa-solid fa-microchip"></i> Xử Lý & Trích Xuất bằng Trí Tuệ Nhân Tạo
+                                </button>
+                            </div>
+                        </form>
+                        <div id="statusPetition" class="status-msg"></div>
+                    </div>
+                </div>
+
+                <!-- UPLOAD RESOLUTION CARD -->
+                <div class="card admin-card">
+                    <div class="card-header">
+                        <h3><i class="fa-solid fa-file-signature"></i> Cập Nhật Văn Bản Giải Quyết</h3>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted">Tải lên VB giải quyết. AI sẽ tự động đọc nội dung, tìm kiếm đơn thư liên quan và đề xuất cập nhật.</p>
+                        
+                        <form id="formUploadResolution" onsubmit="app.handleUploadResolution(event)">
+                            <div class="file-upload-wrapper">
+                                <input type="file" id="fileResolution" accept=".pdf,.doc,.docx" required>
+                                <label for="fileResolution" class="file-drop-area">
+                                    <i class="fa-solid fa-cloud-arrow-up"></i>
+                                    <span id="labelFileResolution">Nhấn để chọn file văn bản giải quyết</span>
+                                </label>
+                            </div>
+                            
+                            <!-- AI Matching Preview -->
+                            <div id="matchPreview" class="hidden">
+                                <h4><i class="fa-solid fa-wand-magic-sparkles text-gold"></i> AI Đề xuất áp dụng cho Đơn thư:</h4>
+                                <select id="aiMatchSelect" class="gov-select">
+                                    <!-- Options generated by AI mock/real -->
+                                </select>
+                            </div>
+
+                            <div class="form-actions">
+                                <button type="button" class="btn-info btn-block" id="btnAnalyzeResolution" onclick="app.analyzeResolution()">
+                                    <i class="fa-solid fa-magnifying-glass-chart"></i> Phân tích Văn Bản
+                                </button>
+                                <button type="submit" class="btn-success btn-block hidden" id="btnSubmitResolution">
+                                    <i class="fa-solid fa-check-double"></i> Xác Nhận Cập Nhật Kết Quả
+                                </button>
+                            </div>
+                        </form>
+                        <div id="statusResolution" class="status-msg"></div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+
+
+    </main>
+
+    <!-- Modal Login -->
+    <div id="loginModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>Xác Thực Quản Trị Viên</h3>
+                <span class="close-modal" onclick="app.closeLoginModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <form id="formLogin" onsubmit="app.handleLogin(event)">
+                    <div class="form-group">
+                        <label for="adminPassword"><i class="fa-solid fa-lock"></i> Mật khẩu truy cập:</label>
+                        <input type="password" id="adminPassword" class="gov-input mb-3" placeholder="Nhập mã pin quản trị..." required>
+                    </div>
+                    <div id="loginError" class="error-msg hidden">Mật khẩu không chính xác!</div>
+                    <button type="submit" class="btn-primary w-100">Đăng Nhập</button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Detail -->
+    <div id="detailModal" class="modal">
+        <div class="modal-content detail-modal-content">
+            <div class="modal-header">
+                <h3>Chi Tiết Đơn Thư</h3>
+                <span class="close-modal" onclick="app.closeDetailModal()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <div id="detailContent">
+                    <!-- Content will be injected here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- The actual GAS code is hosted in a file so it can be fetched and displayed -->
+    <script src="/script.js"></script>
+</body>
+</html>
