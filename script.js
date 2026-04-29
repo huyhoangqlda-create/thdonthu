@@ -1,8 +1,9 @@
 // Backend is deployed separately to Google Apps Script.
+import { GoogleGenAI } from "@google/genai";
 
 // --- FRONTEND APP SCRIPT ---
 const app = {
-    gasUrl: 'https://script.google.com/macros/s/AKfycbyzrRuyliWKlR5S80aGex8UP0n0uz9D9YYgBjILp433amUd87XqjLQzRJTqD0x5TkQVjw/exec',
+    gasUrl: 'https://script.google.com/macros/s/AKfycbwkGOzD-2ADaLRpBs7nrFsOZAbT9vgnedY6QQ2TssaQbCpGSnBJbSAj3e4JTNt4FN39_Q/exec',
     isAdmin: false,
     petitions: [], // Store current data
     
@@ -200,7 +201,10 @@ const app = {
                         ${row["Chi tiết văn bản giải quyết"] ? `<br><br><a href="${row["Chi tiết văn bản giải quyết"]}" target="_blank" class="file-link" style="color:var(--success)"><i class="fa-solid fa-file-signature"></i> Xem Văn Bản Giải Quyết File PDF/Word</a>` : ''}
                     </p>
                 </div>
-                <button class="btn-primary w-100" style="margin-top: 10px;" onclick="app.updatePetition(${index})"><i class="fa-solid fa-save"></i> Lưu Thay Đổi</button>
+                <div style="display: flex; gap: 10px; margin-top: 10px;">
+                    <button class="btn-primary w-100" onclick="app.updatePetition(${index})"><i class="fa-solid fa-save"></i> Lưu Thay Đổi</button>
+                    <button class="btn-primary w-100" style="background-color: var(--primary-red);" onclick="app.deletePetition(${index})"><i class="fa-solid fa-trash"></i> Xóa Đơn</button>
+                </div>
             `;
         } else {
             html = `
@@ -290,6 +294,44 @@ const app = {
         }
     },
 
+    async deletePetition(index) {
+        if (!confirm("Bạn có chắc chắn muốn xóa đơn này không?")) return;
+        
+        const row = this.petitions[index];
+        const btn = document.querySelectorAll('#detailModal .btn-primary')[1];
+        const oldText = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xóa...';
+        btn.disabled = true;
+
+        const payload = {
+            action: 'delete_petition',
+            rowIndex: row.rowIndex
+        };
+
+        try {
+            const res = await fetch(this.gasUrl, { 
+                method: "POST", 
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(payload) 
+            });
+            const json = await res.json();
+            
+            // Update local
+            this.petitions.splice(index, 1);
+            this.renderTable();
+            this.closeDetailModal();
+            alert("Đã xóa đơn thành công!");
+        } catch (e) {
+            console.error(e);
+            alert("Đã xảy ra lỗi hoặc Google Apps Script chưa hỗ trợ tính năng xóa (Cần tạo action delete_petition trong Code.gs).");
+        } finally {
+            if(btn) {
+                btn.innerHTML = oldText;
+                btn.disabled = false;
+            }
+        }
+    },
+
     closeDetailModal() { document.getElementById('detailModal').classList.remove('active'); },
 
     filterTable() {
@@ -331,6 +373,9 @@ const app = {
         });
     },
 
+    pendingPetitionFile: null,
+    pendingResolutionFile: null,
+
     async handleUploadPetition(e) {
         e.preventDefault();
         const file = document.getElementById('filePetition').files[0];
@@ -338,52 +383,104 @@ const app = {
 
         const btn = document.getElementById('btnSubmitPetition');
         const status = document.getElementById('statusPetition');
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang tải lên và phân tích bằng AI...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang phân tích bằng AI...';
         btn.disabled = true;
+        document.getElementById('aiExtractParamsPetition').classList.add('hidden');
+        status.innerHTML = "";
+        status.className = "status-msg";
 
         try {
             const b64 = await this.toBase64(file);
-            let payload = {
-                action: "upload_petition",
+            this.pendingPetitionFile = {
                 fileName: file.name,
                 mimeType: file.type,
                 base64: b64
             };
 
-            if (this.gasUrl) {
-                const res = await fetch(this.gasUrl, { 
-                    method: "POST", 
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(payload) 
-                });
-                const json = await res.json();
-                status.className = "status-msg success";
-                status.innerHTML = `<i class="fa-solid fa-check"></i> ${json.message}`;
-            } else {
-                // FALLBACK DEMO: Simulate AI processing
-                await new Promise(r => setTimeout(r, 2000));
-                let newRow = {
-                    rowIndex: Date.now(), STT: this.petitions.length + 1,
-                    "Ngày gửi": new Date().toLocaleDateString('vi-VN'),
-                    "Người gửi": "Nguyễn AI Sinh", "Địa chỉ": "Khu 3, Xã Mô Phỏng", 
-                    "Nội dung đơn": "AI Đã đọc tệp: " + file.name,
-                    "Loại đơn": "Phản ánh", "Đơn vị giải quyết": "Ban Công An", "Thời hạn giải quyết": "15 ngày",
-                    "Kết quả giải quyết": "Đang xử lý", "Chi tiết đơn": b64, "Chi tiết văn bản giải quyết": ""
-                };
-                this.petitions.push(newRow);
-                localStorage.setItem('gov_demo_data', JSON.stringify(this.petitions));
-                status.className = "status-msg success";
-                status.innerHTML = `<i class="fa-solid fa-check"></i> [DEMO] Đã trích xuất và thêm mới thành công!`;
-            }
-            
-            document.getElementById('formUploadPetition').reset();
-            this.loadData();
+            const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+            const prompt = `Hãy đóng vai một chuyên gia phân tích đơn thư hành chính. Đọc tài liệu đính kèm và trích xuất các thông tin sau dưới định dạng JSON chính xác:
+{
+  "ngayGui": "Ngày/tháng/năm trên đơn (nếu có, không thì để trống)",
+  "nguoiGui": "Họ và tên người đứng đơn",
+  "diaChi": "Địa chỉ người gửi",
+  "noiDung": "Tóm tắt ngắn gọn nội dung đơn (khoảng 2-3 câu)",
+  "loaiDon": "Phân loại đơn (Khiếu nại / Tố cáo / Kiến nghị, phản ánh)"
+}`;
 
-        } catch (err) {
+            const response = await ai.models.generateContent({
+                model: "gemini-3-flash-preview",
+                contents: [
+                    prompt,
+                    { inlineData: { mimeType: file.type, data: b64.split(",")[1] || b64 } }
+                ],
+                config: { responseMimeType: "application/json" }
+            });
+            const responseText = response.text;
+            const jsonStr = responseText.replace(/^```json/, "").replace(/```$/, "").trim();
+            const data = JSON.parse(jsonStr) || {};
+
+            document.getElementById('ai-ngayGui').value = data.ngayGui || "";
+            document.getElementById('ai-nguoiGui').value = data.nguoiGui || "";
+            document.getElementById('ai-diaChi').value = data.diaChi || "";
+            document.getElementById('ai-noiDung').value = data.noiDung || "";
+            document.getElementById('ai-loaiDon').value = data.loaiDon || "Kiến nghị, phản ánh";
+            document.getElementById('ai-donVi').value = data.donVi || "UBND Cấp Xã";
+            document.getElementById('ai-thoiHan').value = data.thoiHan || "30 ngày";
+
+            document.getElementById('aiExtractParamsPetition').classList.remove('hidden');
+            status.className = "status-msg success";
+            status.innerHTML = `<i class="fa-solid fa-check"></i> Trích xuất dữ liệu thành công. Vui lòng kiểm tra và lưu vào hệ thống!`;
+        } catch (error) {
+            console.error(error);
             status.className = "status-msg error";
-            status.innerHTML = `<i class="fa-solid fa-xmark"></i> Lỗi: ` + err.message;
+            status.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> Lỗi: ${error.message}`;
         } finally {
             btn.innerHTML = '<i class="fa-solid fa-microchip"></i> Xử Lý & Trích Xuất bằng Trí Tuệ Nhân Tạo';
+            btn.disabled = false;
+        }
+    },
+
+    async confirmAndUploadPetition() {
+        const btn = document.getElementById('btnConfirmAndUploadPetition');
+        const status = document.getElementById('statusPetition');
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang tải lên GAS...';
+        btn.disabled = true;
+
+        const payload = {
+            action: "upload_petition",
+            fileName: this.pendingPetitionFile.fileName,
+            mimeType: this.pendingPetitionFile.mimeType,
+            base64: this.pendingPetitionFile.base64,
+            ngayGui: document.getElementById('ai-ngayGui').value,
+            nguoiGui: document.getElementById('ai-nguoiGui').value,
+            diaChi: document.getElementById('ai-diaChi').value,
+            noiDung: document.getElementById('ai-noiDung').value,
+            loaiDon: document.getElementById('ai-loaiDon').value,
+            donVi: document.getElementById('ai-donVi').value,
+            thoiHan: document.getElementById('ai-thoiHan').value
+        };
+
+        try {
+            const res = await fetch(this.gasUrl, { 
+                method: "POST", 
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(payload) 
+            });
+            const json = await res.json();
+            status.className = "status-msg success";
+            status.innerHTML = `<i class="fa-solid fa-check"></i> Đã lưu vào trang tính thành công!`;
+            
+            document.getElementById('formUploadPetition').reset();
+            document.getElementById('aiExtractParamsPetition').classList.add('hidden');
+            this.pendingPetitionFile = null;
+
+            await this.loadData();
+        } catch (error) {
+            console.error(error);
+            status.className = "status-msg error";
+            status.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> Lỗi lưu GAS: ${error.message}`;
+        } finally {
+            btn.innerHTML = '<i class="fa-solid fa-cloud-arrow-up"></i> Lưu vào Hệ Thống';
             btn.disabled = false;
         }
     },
@@ -393,70 +490,102 @@ const app = {
         if (!file) return alert("Vui lòng chọn file trước!");
         
         const btn = document.getElementById('btnAnalyzeResolution');
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI đang tìm kiếm Đơn Thư...';
-        
-        // Simulating AI taking time to read and match
-        setTimeout(() => {
-            document.getElementById('matchPreview').classList.remove('hidden');
-            btn.classList.add('hidden');
-            document.getElementById('btnSubmitResolution').classList.remove('hidden');
-        }, 1500);
-    },
-
-    async handleUploadResolution(e) {
-        e.preventDefault();
-        const file = document.getElementById('fileResolution').files[0];
-        const targetRow = document.getElementById('aiMatchSelect').value;
-        if (!file || !targetRow) return;
-
-        const btn = document.getElementById('btnSubmitResolution');
         const status = document.getElementById('statusResolution');
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang tải lên...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI đang phân tích và tìm kiếm...';
         btn.disabled = true;
+        document.getElementById('matchPreview').classList.add('hidden');
+        status.innerHTML = "";
+        status.className = "status-msg";
 
         try {
             const b64 = await this.toBase64(file);
-            let payload = {
-                action: "upload_resolution",
+            this.pendingResolutionFile = {
                 fileName: file.name,
                 mimeType: file.type,
-                base64: b64,
-                petitionRowIndex: parseInt(targetRow)
+                base64: b64
             };
 
-            if (this.gasUrl) {
-                const res = await fetch(this.gasUrl, { 
-                    method: "POST", 
-                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                    body: JSON.stringify(payload) 
-                });
-                const json = await res.json();
-                status.className = "status-msg success";
-                status.innerHTML = `<i class="fa-solid fa-check"></i> ${json.message}`;
-            } else {
-                // FALLBACK DEMO
-                await new Promise(r => setTimeout(r, 1500));
-                let obj = this.petitions.find(p => p.rowIndex == targetRow);
-                if(obj) {
-                    obj["Kết quả giải quyết"] = "Đã giải quyết theo VB: " + file.name;
-                    obj["Chi tiết văn bản giải quyết"] = b64;
-                    localStorage.setItem('gov_demo_data', JSON.stringify(this.petitions));
-                }
-                status.className = "status-msg success";
-                status.innerHTML = `<i class="fa-solid fa-check"></i> [DEMO] Đã cập nhật văn bản giải quyết!`;
-            }
+            const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+            const prompt = `Hãy đọc văn bản giải quyết đơn thư đính kèm và trích xuất các thông tin sau dưới định dạng JSON:
+{
+  "tomTatThongTin": "Tóm tắt ngắn gọn nội dung giải quyết"
+}`;
+
+            const response = await ai.models.generateContent({
+                model: "gemini-3-flash-preview",
+                contents: [
+                    prompt,
+                    { inlineData: { mimeType: file.type, data: b64.split(",")[1] || b64 } }
+                ],
+                config: { responseMimeType: "application/json" }
+            });
+            const responseText = response.text;
+            const jsonStr = responseText.replace(/^```json/, "").replace(/```$/, "").trim();
+            const data = JSON.parse(jsonStr) || {};
+
+            document.getElementById('ai-tomTatGiaiQuyet').value = data.tomTatThongTin || "";
+
+            let aiSelect = document.getElementById('aiMatchSelect');
+            aiSelect.innerHTML = '<option value="">-- Vui lòng chọn một Đơn thư --</option>';
+            this.petitions.forEach(p => {
+                aiSelect.innerHTML += `<option value="${p.rowIndex}">[${p["Ngày gửi"]}] ${p["Người gửi"]} - ${p["Loại đơn"]}</option>`;
+            });
+
+            document.getElementById('matchPreview').classList.remove('hidden');
+            btn.classList.add('hidden');
+            document.getElementById('btnSubmitResolution').classList.remove('hidden');
+            status.className = "status-msg success";
+            status.innerHTML = `<i class="fa-solid fa-check"></i> Trích xuất và đề xuất thành công!`;
+        } catch (error) {
+            console.error(error);
+            status.className = "status-msg error";
+            status.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> Lỗi: ${error.message}`;
+        } finally {
+            btn.innerHTML = '<i class="fa-solid fa-magnifying-glass-chart"></i> Phân tích Văn Bản';
+            btn.disabled = false;
+        }
+    },
+
+    async confirmAndUploadResolution() {
+        const targetRow = document.getElementById('aiMatchSelect').value;
+        if (!this.pendingResolutionFile || !targetRow) return alert("Vui lòng chọn file và đơn thư liên kết.");
+
+        const btn = document.getElementById('btnSubmitResolution');
+        const status = document.getElementById('statusResolution');
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang tải lên GAS...';
+        btn.disabled = true;
+
+        const payload = {
+            action: "upload_resolution",
+            fileName: this.pendingResolutionFile.fileName,
+            mimeType: this.pendingResolutionFile.mimeType,
+            base64: this.pendingResolutionFile.base64,
+            ketQua: document.getElementById('ai-tomTatGiaiQuyet').value,
+            petitionRowIndex: parseInt(targetRow)
+        };
+
+        try {
+            const res = await fetch(this.gasUrl, { 
+                method: "POST", 
+                headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                body: JSON.stringify(payload) 
+            });
+            const json = await res.json();
+            status.className = "status-msg success";
+            status.innerHTML = `<i class="fa-solid fa-check"></i> ${json.message || "Đã lưu thành công!"}`;
             
             document.getElementById('formUploadResolution').reset();
             document.getElementById('matchPreview').classList.add('hidden');
-            btn.classList.add('hidden');
+            document.getElementById('btnSubmitResolution').classList.add('hidden');
             document.getElementById('btnAnalyzeResolution').classList.remove('hidden');
-            document.getElementById('btnAnalyzeResolution').innerHTML = '<i class="fa-solid fa-magnifying-glass-chart"></i> Phân tích Văn Bản';
-            
-            this.loadData();
+            this.pendingResolutionFile = null;
 
-        } catch (err) {
+            await this.loadData();
+        } catch (e) {
+            console.error(e);
             status.className = "status-msg error";
-            status.innerHTML = `<i class="fa-solid fa-xmark"></i> Lỗi: ` + err.message;
+            status.innerHTML = `<i class="fa-solid fa-circle-exclamation"></i> ${e.message}`;
+        } finally {
             btn.innerHTML = '<i class="fa-solid fa-check-double"></i> Xác Nhận Cập Nhật Kết Quả';
             btn.disabled = false;
         }
