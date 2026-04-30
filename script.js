@@ -3,7 +3,7 @@ import { GoogleGenAI } from "@google/genai";
 
 // --- FRONTEND APP SCRIPT ---
 const app = {
-    gasUrl: 'https://script.google.com/macros/s/AKfycbwkGOzD-2ADaLRpBs7nrFsOZAbT9vgnedY6QQ2TssaQbCpGSnBJbSAj3e4JTNt4FN39_Q/exec',
+    gasUrl: 'https://script.google.com/macros/s/AKfycbzuhsR8_n6XhcFJRISZ7dwnxwO_0xO38te1QNrpj8_pCIjsO0MXS4UkE0oCcnvnj20f5g/exec',
     isAdmin: false,
     petitions: [], // Store current data
     
