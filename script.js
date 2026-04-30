@@ -116,7 +116,8 @@ const app = {
         data.forEach((row, index) => {
             let tr = document.createElement('tr');
             tr.className = 'clickable-row';
-            tr.onclick = () => this.showDetailModal(index);
+            const realIndex = this.petitions.indexOf(row);
+            tr.onclick = () => this.showDetailModal(realIndex);
             
             // Format some stuff manually
             let resolveSttClass = row["Kết quả giải quyết"] && row["Kết quả giải quyết"].includes("Đang") ? "status-pending" : "status-resolved";
