@@ -72,6 +72,7 @@ const app = {
             
             if (res.status === 'success') {
                 this.petitions = res.data;
+                this.sortPetitionsByDate();
                 this.renderTable();
             } else {
                 this.showErrorRow("Lỗi tải dữ liệu: " + (res.error || 'Unknown'));
@@ -87,7 +88,32 @@ const app = {
         this.petitions = JSON.parse(localStorage.getItem('gov_demo_data')) || [
             { rowIndex: 2, "STT": 1, "Ngày gửi": "20/05/2026", "Người gửi": "Nguyễn Văn A", "Địa chỉ": "Thôn 1, Xã XYZ", "Nội dung đơn": "Đề nghị giải quyết tranh chấp đất đai giáp ranh", "Loại đơn": "Khiếu nại", "Đơn vị giải quyết": "Ban Địa giới", "Thời hạn giải quyết": "30 ngày", "Kết quả giải quyết": "Đang xử lý", "Chi tiết đơn": "#", "Chi tiết văn bản giải quyết": "" }
         ];
+        this.sortPetitionsByDate();
         this.renderTable();
+    },
+
+    parseDateForSort(dateStr) {
+        if (!dateStr) return 0;
+        if (typeof dateStr === 'string' && dateStr.match(/^\d{2}\/\d{2}\/\d{4}/)) {
+            let parts = dateStr.substring(0, 10).split('/');
+            return new Date(parts[2], parts[1] - 1, parts[0]).getTime();
+        }
+        let d = new Date(dateStr);
+        if (!isNaN(d.getTime())) {
+            return d.getTime();
+        }
+        return 0;
+    },
+
+    sortPetitionsByDate() {
+        this.petitions.sort((a, b) => {
+            let tA = this.parseDateForSort(a["Ngày gửi"]);
+            let tB = this.parseDateForSort(b["Ngày gửi"]);
+            return tB - tA;
+        });
+        this.petitions.forEach((p, index) => {
+            p["STT"] = index + 1;
+        });
     },
 
     formatDateStr(dateStr) {
@@ -135,7 +161,7 @@ const app = {
             let formattedDate = this.formatDateStr(row["Ngày gửi"]);
 
             tr.innerHTML = `
-                <td class="text-center"><strong>${row["STT"] || ''}</strong></td>
+                <td class="text-center"><strong>${index + 1}</strong></td>
                 <td>${formattedDate}</td>
                 <td><strong>${row["Người gửi"] || ''}</strong></td>
                 <td>${row["Địa chỉ"] || ''}</td>
@@ -369,7 +395,10 @@ const app = {
         return new Promise((resolve, reject) => {
             const reader = new FileReader();
             reader.readAsDataURL(file);
-            reader.onload = () => resolve(reader.result);
+            reader.onload = () => {
+                const base64String = reader.result.split(',')[1] || reader.result;
+                resolve(base64String);
+            };
             reader.onerror = error => reject(error);
         });
     },
@@ -468,14 +497,19 @@ const app = {
                 body: JSON.stringify(payload) 
             });
             const json = await res.json();
-            status.className = "status-msg success";
-            status.innerHTML = `<i class="fa-solid fa-check"></i> Đã lưu vào trang tính thành công!`;
-            
-            document.getElementById('formUploadPetition').reset();
-            document.getElementById('aiExtractParamsPetition').classList.add('hidden');
-            this.pendingPetitionFile = null;
+            console.log("Upload petition response:", json);
+            if (json.status === 'success') {
+                status.className = "status-msg success";
+                status.innerHTML = `<i class="fa-solid fa-check"></i> Đã lưu vào trang tính thành công!`;
+                
+                document.getElementById('formUploadPetition').reset();
+                document.getElementById('aiExtractParamsPetition').classList.add('hidden');
+                this.pendingPetitionFile = null;
 
-            await this.loadData();
+                await this.loadData();
+            } else {
+                throw new Error(json.message || json.error || "GAS returned error");
+            }
         } catch (error) {
             console.error(error);
             status.className = "status-msg error";
@@ -572,16 +606,21 @@ const app = {
                 body: JSON.stringify(payload) 
             });
             const json = await res.json();
-            status.className = "status-msg success";
-            status.innerHTML = `<i class="fa-solid fa-check"></i> ${json.message || "Đã lưu thành công!"}`;
-            
-            document.getElementById('formUploadResolution').reset();
-            document.getElementById('matchPreview').classList.add('hidden');
-            document.getElementById('btnSubmitResolution').classList.add('hidden');
-            document.getElementById('btnAnalyzeResolution').classList.remove('hidden');
-            this.pendingResolutionFile = null;
+            console.log("Upload resolution response:", json);
+            if (json.status === 'success') {
+                status.className = "status-msg success";
+                status.innerHTML = `<i class="fa-solid fa-check"></i> ${json.message || "Đã lưu thành công!"}`;
+                
+                document.getElementById('formUploadResolution').reset();
+                document.getElementById('matchPreview').classList.add('hidden');
+                document.getElementById('btnSubmitResolution').classList.add('hidden');
+                document.getElementById('btnAnalyzeResolution').classList.remove('hidden');
+                this.pendingResolutionFile = null;
 
-            await this.loadData();
+                await this.loadData();
+            } else {
+                throw new Error(json.message || json.error || "GAS returned error");
+            }
         } catch (e) {
             console.error(e);
             status.className = "status-msg error";
