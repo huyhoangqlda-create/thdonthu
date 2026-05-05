@@ -375,16 +375,25 @@ const app = {
         document.getElementById('tableBody').innerHTML = `<tr><td colspan="11" class="text-center text-danger"><i class="fa-solid fa-triangle-exclamation"></i> ${msg}</td></tr>`;
     },
 
-    updateAdminResolutionDropdown() {
+    updateAdminResolutionDropdown(filteredData = this.petitions) {
         const select = document.getElementById('aiMatchSelect');
         if(!select) return;
         select.innerHTML = '';
-        this.petitions.forEach(row => {
+        filteredData.forEach(row => {
             let opt = document.createElement('option');
             opt.value = row.rowIndex; 
             opt.textContent = `[Đơn ${row["STT"]}] ${row["Người gửi"]} - ${row["Nội dung đơn"].substring(0,30)}...`;
             select.appendChild(opt);
         });
+    },
+
+    filterAdminResolutionDropdown() {
+        const term = document.getElementById('aiMatchSearch').value.toLowerCase();
+        const filtered = this.petitions.filter(p => {
+            return (p["Người gửi"]||'').toLowerCase().includes(term) ||
+                   (p["Nội dung đơn"]||'').toLowerCase().includes(term);
+        });
+        this.updateAdminResolutionDropdown(filtered);
     },
 
     // ===========================
